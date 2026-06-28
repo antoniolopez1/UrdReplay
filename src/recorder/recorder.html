@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>DevJam — Grabación</title>
+  <link rel="stylesheet" href="recorder.css" />
+</head>
+<body>
+  <div class="layout">
+
+    <!-- ── Sidebar izquierdo ── -->
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <span class="brand-name">DevJam</span>
+        <span class="brand-tag">recorder</span>
+      </div>
+
+      <!-- Estado -->
+      <div class="status-card" id="status-card">
+        <div class="status-indicator" id="status-indicator"></div>
+        <div class="status-info">
+          <span class="status-label" id="status-label">Sin fuente</span>
+          <span class="status-sub"   id="status-sub">Elegí una pestaña para empezar</span>
+        </div>
+      </div>
+
+      <!-- Timer -->
+      <div class="timer-block">
+        <span class="timer-display" id="timer-display">0:00:00</span>
+        <span class="timer-hint">duración</span>
+      </div>
+
+      <!-- Opciones de grabación -->
+      <div class="options-block">
+        <div class="option-group-label">Video</div>
+
+        <label class="option-row">
+          <span class="option-label">FPS</span>
+          <select id="sel-fps" class="select">
+            <option value="30">30 fps</option>
+            <option value="24" selected>24 fps</option>
+            <option value="15">15 fps</option>
+          </select>
+        </label>
+
+        <label class="option-row">
+          <span class="option-label">Formato</span>
+          <select id="sel-format" class="select">
+            <option value="webm">WebM</option>
+            <option value="mp4">MP4</option>
+          </select>
+        </label>
+
+        <div class="option-group-label" style="margin-top:8px">Audio</div>
+
+        <label class="option-row toggle-row">
+          <span class="option-label">Micrófono</span>
+          <div class="toggle-wrap">
+            <input type="checkbox" id="chk-mic" class="toggle-input" />
+            <span class="toggle-track"></span>
+          </div>
+        </label>
+
+        <label class="option-row toggle-row">
+          <span class="option-label">Capturar errores también</span>
+          <div class="toggle-wrap">
+            <input type="checkbox" id="chk-events" class="toggle-input" checked />
+            <span class="toggle-track"></span>
+          </div>
+        </label>
+      </div>
+
+      <!-- Botones -->
+      <div class="actions">
+        <button id="btn-select" class="btn btn-secondary">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+            <rect x="1" y="3" width="14" height="10" rx="2" stroke="currentColor" stroke-width="1.4"/>
+            <path d="M5 8h6M8 5v6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+          Elegir pestaña
+        </button>
+
+        <button id="btn-start" class="btn btn-start" disabled>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"/>
+            <circle cx="8" cy="8" r="3" fill="currentColor"/>
+          </svg>
+          Iniciar grabación
+        </button>
+
+        <button id="btn-pause" class="btn btn-secondary" style="display:none">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+            <rect x="4" y="3" width="3" height="10" rx="1" fill="currentColor"/>
+            <rect x="9" y="3" width="3" height="10" rx="1" fill="currentColor"/>
+          </svg>
+          Pausar
+        </button>
+
+        <button id="btn-stop" class="btn btn-stop" style="display:none">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+            <rect x="3" y="3" width="10" height="10" rx="2" fill="currentColor"/>
+          </svg>
+          Detener y guardar
+        </button>
+      </div>
+
+      <!-- Grabaciones -->
+      <div class="recordings-section">
+        <div class="section-header">
+          <span class="section-title">Grabaciones</span>
+          <span class="section-count" id="rec-count">0</span>
+        </div>
+        <div class="recordings-list" id="recordings-list">
+          <p class="empty-hint">Las grabaciones aparecerán aquí.</p>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ── Panel central: preview + pestaña picker ── -->
+    <main class="main-area">
+
+      <!-- Selector de pestaña (visible cuando no hay fuente) -->
+      <div class="tab-picker" id="tab-picker">
+        <div class="tab-picker-header">
+          <span class="tab-picker-title">Elegí una pestaña para grabar</span>
+          <button id="btn-refresh-tabs" class="btn-icon-only" title="Actualizar lista">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M13.5 8A5.5 5.5 0 1 1 8 2.5c1.8 0 3.4.87 4.4 2.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <path d="M10.5 2l2 2.5-2.5 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+        <div class="tab-grid" id="tab-grid">
+          <p class="empty-hint" style="padding:24px">Cargando pestañas...</p>
+        </div>
+      </div>
+
+      <!-- Preview de grabación (visible cuando hay fuente) -->
+      <div class="preview-wrap" id="preview-wrap" style="display:none">
+        <div class="preview-container" id="preview-container">
+          <canvas id="preview-canvas"></canvas>
+
+          <!-- Overlay REC -->
+          <div class="rec-overlay" id="rec-overlay" style="display:none">
+            <div class="rec-pill">
+              <span class="rec-dot-live"></span>
+              <span id="overlay-time">0:00:00</span>
+            </div>
+          </div>
+
+          <!-- Overlay pausa -->
+          <div class="pause-overlay" id="pause-overlay" style="display:none">
+            <svg width="40" height="40" viewBox="0 0 48 48" fill="none">
+              <rect x="12" y="10" width="9" height="28" rx="3" fill="white" opacity="0.8"/>
+              <rect x="27" y="10" width="9" height="28" rx="3" fill="white" opacity="0.8"/>
+            </svg>
+            <span>Pausado</span>
+          </div>
+        </div>
+
+        <!-- Barra de info de la pestaña -->
+        <div class="source-bar">
+          <div class="source-favicon" id="source-favicon"></div>
+          <span class="source-name" id="source-name">—</span>
+          <button id="btn-change-tab" class="btn-text">Cambiar pestaña</button>
+        </div>
+      </div>
+
+      <!-- Panel de errores (columna derecha dentro del main) -->
+      <div class="events-panel" id="events-panel">
+        <div class="events-panel-header">
+          <div class="events-tabs">
+            <button class="etab active" data-etab="all">Todo</button>
+            <button class="etab" data-etab="error">Errores</button>
+            <button class="etab" data-etab="network">Red</button>
+            <button class="etab" data-etab="console">Consola</button>
+          </div>
+          <div class="events-panel-actions">
+            <div class="event-counters">
+              <span class="ectr ectr-error" id="ep-errors">0</span>
+              <span class="ectr ectr-warn"  id="ep-warns">0</span>
+              <span class="ectr ectr-net"   id="ep-net">0</span>
+            </div>
+            <button id="ep-clear" class="btn-icon-only" title="Limpiar">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                <path d="M3 4h10M5 4V3h6v1M6 7v4M10 7v4M4 4l.6 8h6.8L12 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            <button id="ep-capture-toggle" class="btn-capture-sm" data-active="false">
+              <span class="dot-capture"></span>
+              <span id="ep-capture-label">Captura off</span>
+            </button>
+          </div>
+        </div>
+        <div class="events-scroll" id="events-scroll">
+          <div class="events-empty" id="events-empty">
+            <p>Activá la captura para ver eventos.</p>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <script src="recorder.js"></script>
+</body>
+</html>

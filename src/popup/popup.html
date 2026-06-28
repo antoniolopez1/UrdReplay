@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DevJam</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="logo">
+      <span class="logo-dot"></span>
+      <span class="logo-text">DevJam</span>
+    </div>
+    <div class="header-actions">
+      <button id="btn-export" class="btn btn-ghost" title="Exportar JSON">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <path d="M8 2v8M5 7l3 3 3-3M3 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <button id="btn-clear" class="btn btn-ghost" title="Limpiar eventos">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <path d="M3 4h10M5 4V3h6v1M6 7v4M10 7v4M4 4l.6 8h6.8L12 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Controles principales -->
+  <section class="controls">
+    <!-- Captura de eventos -->
+    <div class="control-group">
+      <div class="control-label">
+        <span class="label-text">Captura</span>
+        <span id="capture-badge" class="badge badge-off">off</span>
+      </div>
+      <button id="btn-capture" class="btn btn-primary">
+        <span class="btn-icon btn-icon-play">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <polygon points="2,1 11,6 2,11" fill="currentColor"/>
+          </svg>
+        </span>
+        <span class="btn-icon btn-icon-stop" style="display:none">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <rect x="1" y="1" width="10" height="10" rx="1" fill="currentColor"/>
+          </svg>
+        </span>
+        <span id="btn-capture-text">Iniciar captura</span>
+      </button>
+    </div>
+
+    <!-- Grabación de pantalla -->
+    <div class="control-group">
+      <div class="control-label">
+        <span class="label-text">Pantalla</span>
+        <span id="record-badge" class="badge badge-off">off</span>
+      </div>
+      <button id="btn-record" class="btn btn-record">
+        <span class="btn-icon">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <circle cx="6" cy="6" r="4" fill="currentColor"/>
+          </svg>
+        </span>
+        <span id="btn-record-text">Grabar pantalla</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- Contadores -->
+  <div class="counters">
+    <div class="counter" id="counter-error">
+      <span class="counter-num" id="count-errors">0</span>
+      <span class="counter-label">errores</span>
+    </div>
+    <div class="counter" id="counter-warn">
+      <span class="counter-num" id="count-warns">0</span>
+      <span class="counter-label">warnings</span>
+    </div>
+    <div class="counter" id="counter-net">
+      <span class="counter-num" id="count-net">0</span>
+      <span class="counter-label">red</span>
+    </div>
+    <div class="counter" id="counter-net-err">
+      <span class="counter-num" id="count-net-errors">0</span>
+      <span class="counter-label">net errors</span>
+    </div>
+  </div>
+
+  <!-- Tabs de filtro -->
+  <div class="tabs">
+    <button class="tab active" data-tab="all">Todo</button>
+    <button class="tab" data-tab="error">Errores</button>
+    <button class="tab" data-tab="network">Red</button>
+    <button class="tab" data-tab="console">Consola</button>
+  </div>
+
+  <!-- Lista de eventos -->
+  <div class="events-list" id="events-list">
+    <div class="empty-state" id="empty-state">
+      <p>Inicia la captura para ver eventos.</p>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
