@@ -1,4 +1,4 @@
-// ─── DevJam · Background Service Worker ───────────────────────────────────
+// ─── UrdReplay · Background Service Worker ───────────────────────────────────
 
 const SESSION_KEY = 'devjam_session';
 const MAX_EVENTS  = 500;

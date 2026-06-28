@@ -1,4 +1,4 @@
-// ─── DevJam · Content Script ──────────────────────────────────────────────
+// ─── UrdReplay · Content Script ──────────────────────────────────────────────
 (function () {
   'use strict';
 

@@ -1,4 +1,4 @@
-/* ─── DevJam · Recorder Page ─────────────────────────────────────────────── */
+/* ─── UrdReplay · Recorder Page ─────────────────────────────────────────────── */
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -125,7 +125,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 }
 
 /* Tab picker */
-.tab-picker { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.tab-picker { flex: 1; display: flex; flex-direction: column; min-height: 50vh; }
 .tab-picker-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .tab-picker-title { font-size: 13px; font-weight: 600; color: var(--text-2); }
 .tab-grid { flex: 1; overflow-y: auto; padding: 12px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; align-content: start; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
