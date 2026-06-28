@@ -12,7 +12,7 @@ Su objetivo principal es **capturar, registrar y reproducir el contexto completo
 
 El nombre **Urd** proviene de la mitología nórdica.
 
-:contentReference[oaicite:0]{index=0} es una de las tres Nornas, hermanas del destino, y es la encargada de **tejer el pasado**.
+Urd es una de las tres Nornas, hermanas del destino, y es la encargada de **tejer el pasado**.
 
 En la mitología, Urd representa todo lo que ya ocurrió, registrando y entrelazando los eventos que forman la realidad.
 
@@ -79,7 +79,7 @@ Actualmente UrdReplay es una **extensión funcional de Firefox**, que puede inst
 
 ### 🔧 Requisitos
 
-- :contentReference[oaicite:1]{index=1} (versión moderna recomendada)
+- Firefox (versión moderna recomendada)
 
 ---
 
