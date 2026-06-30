@@ -206,7 +206,7 @@
     browser.runtime.sendMessage({
       type: 'CONSOLE_EVENT',
       event: { type: 'console', ...e.detail },
-    }).catch(() => {});
+    }).catch(() => { });
   });
 
   window.addEventListener('__devjam_network__', e => {
@@ -214,7 +214,7 @@
     browser.runtime.sendMessage({
       type: 'NETWORK_BODY',
       ...e.detail,
-    }).catch(() => {});
+    }).catch(() => { });
   });
 
   // ── Órdenes del background ────────────────────────────────────────────────
@@ -231,10 +231,10 @@
     cursorThrottle = setTimeout(() => { cursorThrottle = null; }, 32);
     browser.runtime.sendMessage({
       type: 'CURSOR_MOVE',
-      x:    e.clientX,
-      y:    e.clientY,
-      dpr:  window.devicePixelRatio || 1,
-    }).catch(() => {});
+      x: e.clientX,
+      y: e.clientY,
+      dpr: window.devicePixelRatio || 1,
+    }).catch(() => { });
   }, { passive: true });
 
   injectPageHook();

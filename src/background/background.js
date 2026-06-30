@@ -1,20 +1,20 @@
-// ─── UrdReplay · Background Service Worker ───────────────────────────────────
+// ─── DevJam · Background Service Worker ───────────────────────────────────
 
 const SESSION_KEY = 'devjam_session';
-const MAX_EVENTS  = 500;
+const MAX_EVENTS = 500;
 
 // ── Estado ────────────────────────────────────────────────────────────────
-let capturing     = false;
-let captureTabId  = null;   // null = todas las pestañas, número = solo esa
-let recording     = false;
+let capturing = false;
+let captureTabId = null;   // null = todas las pestañas, número = solo esa
+let recording = false;
 let networkEvents = [];
 let consoleEvents = [];
 
 browser.storage.local.get(SESSION_KEY).then(result => {
   const saved = result[SESSION_KEY];
   if (saved) {
-    capturing     = saved.capturing    ?? false;
-    captureTabId  = saved.captureTabId ?? null;
+    capturing = saved.capturing ?? false;
+    captureTabId = saved.captureTabId ?? null;
     networkEvents = saved.networkEvents ?? [];
     consoleEvents = saved.consoleEvents ?? [];
   }
@@ -35,19 +35,19 @@ browser.webRequest.onBeforeRequest.addListener(
         try {
           const bytes = details.requestBody.raw[0]?.bytes;
           if (bytes) requestBody = new TextDecoder().decode(bytes).slice(0, 4000);
-        } catch {}
+        } catch { }
       } else if (details.requestBody.formData) {
         requestBody = JSON.stringify(details.requestBody.formData);
       }
     }
 
     pendingRequests.set(details.requestId, {
-      id:          details.requestId,
-      type:        'network',
-      method:      details.method,
-      url:         details.url,
-      startTime:   details.timeStamp,
-      tabId:       details.tabId,
+      id: details.requestId,
+      type: 'network',
+      method: details.method,
+      url: details.url,
+      startTime: details.timeStamp,
+      tabId: details.tabId,
       requestBody,
     });
   },
@@ -79,23 +79,23 @@ browser.webRequest.onCompleted.addListener(
     if (!req) return;
 
     // webRequest devuelve [{name, value}] — convertir a objeto plano
-    const rawHeaders      = details.responseHeaders ?? [];
+    const rawHeaders = details.responseHeaders ?? [];
     const responseHeaders = {};
     for (const h of rawHeaders) responseHeaders[h.name.toLowerCase()] = h.value;
-    const contentType     = responseHeaders['content-type'] ?? '';
-    const contentLength   = responseHeaders['content-length'] ?? null;
+    const contentType = responseHeaders['content-type'] ?? '';
+    const contentLength = responseHeaders['content-length'] ?? null;
 
     const event = {
       ...req,
-      status:          details.statusCode,
-      duration:        Math.round(details.timeStamp - req.startTime),
+      status: details.statusCode,
+      duration: Math.round(details.timeStamp - req.startTime),
       contentType,
-      contentLength:   contentLength ? parseInt(contentLength) : null,
+      contentLength: contentLength ? parseInt(contentLength) : null,
       responseHeaders,
-      timestamp:       Date.now(),
-      severity:        details.statusCode >= 500 ? 'error'
-                     : details.statusCode >= 400 ? 'warn'
-                     : 'info',
+      timestamp: Date.now(),
+      severity: details.statusCode >= 500 ? 'error'
+        : details.statusCode >= 400 ? 'warn'
+          : 'info',
     };
 
     pendingRequests.delete(details.requestId);
@@ -114,15 +114,15 @@ browser.webRequest.onErrorOccurred.addListener(
 
     addNetworkEvent({
       ...(req ?? {}),
-      id:        details.requestId,
-      type:      'network',
-      method:    req?.method ?? '?',
-      url:       details.url,
-      status:    0,
-      error:     details.error,
-      duration:  req ? Math.round(details.timeStamp - req.startTime) : 0,
+      id: details.requestId,
+      type: 'network',
+      method: req?.method ?? '?',
+      url: details.url,
+      status: 0,
+      error: details.error,
+      duration: req ? Math.round(details.timeStamp - req.startTime) : 0,
       timestamp: Date.now(),
-      severity:  'error',
+      severity: 'error',
     });
   },
   { urls: ['<all_urls>'] }
@@ -150,36 +150,80 @@ function persist() {
 }
 
 // ── Frame push loop ────────────────────────────────────────────────────────
+// sources: array de { type: 'tab'|'window'|'screen', tabId?, windowId? }
+// Para 'tab': activa la pestaña, captura, restaura la tab anterior.
+// Para 'window'/'screen': el recorder usa getDisplayMedia directamente.
+
 let framePushTimer = null;
+let framePushSources = [];
 
-function startFramePush(tabId, fps) {
+async function captureTabFrame(tabId) {
+  // 1. Saber qué tab está activa ahora en esa ventana
+  const tab = await browser.tabs.get(tabId);
+  const windowId = tab.windowId;
+
+  // 2. Obtener la tab activa actual en esa ventana
+  const [activeTab] = await browser.tabs.query({ active: true, windowId });
+  const wasActive = activeTab?.id ?? null;
+
+  // 3. Si la tab objetivo no está activa, activarla momentáneamente
+  if (wasActive !== tabId) {
+    await browser.tabs.update(tabId, { active: true });
+    // Esperar un tick para que el browser renderice el contenido
+    await new Promise(r => setTimeout(r, 16));
+  }
+
+  // 4. Capturar
+  const dataUrl = await browser.tabs.captureVisibleTab(windowId, {
+    format: 'jpeg', quality: 80,
+  });
+
+  // 5. Restaurar la tab que estaba activa (sin await para no bloquear)
+  if (wasActive !== null && wasActive !== tabId) {
+    browser.tabs.update(wasActive, { active: true }).catch(() => { });
+  }
+
+  return dataUrl;
+}
+
+function startFramePush(sources, fps) {
   stopFramePush();
+  framePushSources = sources;
   const interval = Math.round(1000 / Math.min(fps, 30));
-  let   busy     = false;
-  let   windowId = null;
-
-  browser.tabs.get(tabId).then(tab => { windowId = tab.windowId; }).catch(() => {});
+  let busy = false;
 
   framePushTimer = setInterval(async () => {
-    if (busy || windowId === null) return;
+    if (busy || framePushSources.length === 0) return;
     busy = true;
     try {
-      const dataUrl = await browser.tabs.captureVisibleTab(windowId, {
-        format: 'jpeg', quality: 80,
-      });
-      browser.runtime.sendMessage({ type: 'FRAME_DATA', dataUrl }).catch(() => {});
-    } catch {}
+      // Capturar cada fuente y mandar su frame con su índice
+      const frames = await Promise.all(
+        framePushSources.map(async (src, idx) => {
+          if (src.type === 'tab') {
+            const dataUrl = await captureTabFrame(src.tabId);
+            return { idx, dataUrl };
+          }
+          return null; // window/screen los maneja el recorder con getDisplayMedia
+        })
+      );
+      for (const f of frames) {
+        if (f?.dataUrl) {
+          browser.runtime.sendMessage({ type: 'FRAME_DATA', idx: f.idx, dataUrl: f.dataUrl }).catch(() => { });
+        }
+      }
+    } catch { }
     busy = false;
   }, interval);
 }
 
 function stopFramePush() {
   if (framePushTimer) { clearInterval(framePushTimer); framePushTimer = null; }
+  framePushSources = [];
 }
 
 // ── Broadcast ──────────────────────────────────────────────────────────────
 function broadcast(msg) {
-  browser.runtime.sendMessage(msg).catch(() => {});
+  browser.runtime.sendMessage(msg).catch(() => { });
 }
 
 // ── Mensajes ───────────────────────────────────────────────────────────────
@@ -202,7 +246,7 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // Buscar el evento de red correspondiente y agregarle el body
       const ev = networkEvents.find(e => e.url === msg.url && !e.responseBody);
       if (ev) {
-        ev.responseBody    = msg.responseBody;
+        ev.responseBody = msg.responseBody;
         ev.requestBodyFull = msg.requestBody;
         persist();
         broadcast({ type: 'NETWORK_EVENT', event: ev });
@@ -215,14 +259,14 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true;
 
     case 'SET_CAPTURING':
-      capturing    = msg.value;
+      capturing = msg.value;
       captureTabId = msg.tabId ?? null;   // null = todas las pestañas
       persist();
       browser.tabs.query({}).then(tabs => {
         tabs.forEach(tab => {
           browser.tabs.sendMessage(tab.id, {
             type: 'SET_CAPTURING', value: capturing
-          }).catch(() => {});
+          }).catch(() => { });
         });
       });
       sendResponse({ ok: true });
@@ -235,7 +279,7 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         tabs.forEach(tab => {
           browser.tabs.sendMessage(tab.id, {
             type: 'SET_RECORDING', value: recording
-          }).catch(() => {});
+          }).catch(() => { });
         });
       });
       sendResponse({ ok: true });
@@ -246,12 +290,12 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break;
 
     case 'START_FRAME_PUSH':
-      startFramePush(msg.tabId, msg.fps);
+      // startFramePush(msg.sources, msg.fps);
       sendResponse({ ok: true });
       return true;
 
     case 'STOP_FRAME_PUSH':
-      stopFramePush();
+      // stopFramePush();
       sendResponse({ ok: true });
       return true;
 

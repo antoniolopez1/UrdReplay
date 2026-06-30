@@ -35,6 +35,7 @@
     "tabs",
     "windows",
     "activeTab",
+    "captureTab",
     "webRequest",
     "scripting",
     "<all_urls>"
