@@ -3,68 +3,61 @@
   "name": "UrdReplay",
   "version": "1.1.0",
   "description": "Captura errores de consola, red y graba la pantalla para debugging.",
-
   "icons": {
     "48": "icons/icon-48.png",
     "96": "icons/icon-96.png"
   },
-
   "action": {
     "default_popup": "src/popup/popup.html",
     "default_icon": {
       "48": "icons/icon-48.png"
     }
   },
-
   "background": {
-    "scripts": ["src/background/background.js"],
-    "type": "module"
+    "type": "module",
+    "scripts": [
+      "src/background/background.js"
+    ]
   },
-
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["src/content/content.js"],
-      "run_at": "document_start",
-      "all_frames": true
-    }
-  ],
-
   "permissions": [
     "storage",
     "tabs",
     "windows",
     "activeTab",
-    "captureTab",
-    "webRequest",
     "scripting",
-    "<all_urls>"
+    "webRequest",
+    "webNavigation",
+    "unlimitedStorage"
   ],
-
-  "optional_permissions": [
-    "webRequestBlocking"
-  ],
-
   "host_permissions": [
     "<all_urls>"
   ],
-
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "src/content/content.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
   "web_accessible_resources": [
     {
       "resources": [
-        "src/content/content.js",
-        "src/recorder/recorder.html",
-        "src/recorder/recorder.css",
-        "src/recorder/recorder.js"
+        "src/injected/injected.js"
       ],
-      "matches": ["<all_urls>"]
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ],
-
   "browser_specific_settings": {
     "gecko": {
       "id": "devjam@extension",
-      "strict_min_version": "109.0"
+      "strict_min_version": "127.0"
     }
   }
 }

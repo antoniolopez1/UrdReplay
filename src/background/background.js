@@ -1,4 +1,12 @@
+import {
+finalizeRequest,
+shouldTrackRequest
+} from "./TraceUtils/NetworkUtils.js";
+import { startRecording, stopRecording, rebuildRecordedTabIds, broadcast } from "./TraceUtils/RecorderUtils.js";
+import { state, pendingRequests } from './globalState.js';
+import { loadState, isTrackableUrl, handleNavigationEvent, deleteCase, matchesScope, pushEvent } from "./TraceUtils/UseCaseUtils.js";
 // ─── DevJam · Background Service Worker ───────────────────────────────────
+
 
 const SESSION_KEY = 'devjam_session';
 const MAX_EVENTS = 500;
@@ -19,9 +27,43 @@ browser.storage.local.get(SESSION_KEY).then(result => {
     consoleEvents = saved.consoleEvents ?? [];
   }
 });
+/**
+ * background.js
+ * Controla el ciclo de vida de la grabación de un "caso de uso":
+ *  - Mantiene el estado en memoria + storage.local (fuente de verdad)
+ *  - Escucha navegación real y de SPA (history pushState/replaceState)
+ *  - Escucha apertura/cierre de pestañas cuando el alcance es "ventana"
+ *  - Recibe eventos de interacción (clics, inputs) y de "resultados"
+ *    (consola, errores) que manda content.js
+ *  - Captura peticiones de red (headers, body, response) vía webRequest
+ *    y las adjunta como "resultado" del paso de usuario más reciente
+ *  - Responde a content.js cuándo debe capturar o no (según pestaña/ventana)
+ */
+
+
+// Límites para no disparar el tamaño de storage con bodies/console grandes
+const MAX_BODY_CHARS = 20000;       // tope de texto guardado por body de red
+const MAX_RESULTS_PER_STEP = 60;    // tope de entradas (red/consola/errores) por paso
+
+
+// Estado solo en memoria (no se persiste): seguimiento de red en vuelo
 
 // ── Captura de red ─────────────────────────────────────────────────────────
-const pendingRequests = new Map();
+
+
+
+
+
+// ---------- Redacción de datos sensibles (headers / bodies) ----------
+
+const SENSITIVE_KEY_PATTERN = /pass(word)?|pwd|secret|token|api[_-]?key|auth|card(num|number)?|cvv|cvc|ssn/i;
+const SENSITIVE_HEADER_NAMES = new Set([
+  "authorization",
+  "cookie",
+  "set-cookie",
+  "x-api-key",
+  "proxy-authorization"
+]);
 
 browser.webRequest.onBeforeRequest.addListener(
   details => {
@@ -128,107 +170,12 @@ browser.webRequest.onErrorOccurred.addListener(
   { urls: ['<all_urls>'] }
 );
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-function addNetworkEvent(event) {
-  networkEvents.unshift(event);
-  if (networkEvents.length > MAX_EVENTS) networkEvents.length = MAX_EVENTS;
-  persist();
-  broadcast({ type: 'NETWORK_EVENT', event });
-}
 
-function addConsoleEvent(event) {
-  consoleEvents.unshift(event);
-  if (consoleEvents.length > MAX_EVENTS) consoleEvents.length = MAX_EVENTS;
-  persist();
-  broadcast({ type: 'CONSOLE_EVENT', event });
-}
-
-function persist() {
-  browser.storage.local.set({
-    [SESSION_KEY]: { capturing, captureTabId, networkEvents, consoleEvents }
-  });
-}
-
-// ── Frame push loop ────────────────────────────────────────────────────────
-// sources: array de { type: 'tab'|'window'|'screen', tabId?, windowId? }
-// Para 'tab': activa la pestaña, captura, restaura la tab anterior.
-// Para 'window'/'screen': el recorder usa getDisplayMedia directamente.
-
-let framePushTimer = null;
-let framePushSources = [];
-
-async function captureTabFrame(tabId) {
-  // 1. Saber qué tab está activa ahora en esa ventana
-  const tab = await browser.tabs.get(tabId);
-  const windowId = tab.windowId;
-
-  // 2. Obtener la tab activa actual en esa ventana
-  const [activeTab] = await browser.tabs.query({ active: true, windowId });
-  const wasActive = activeTab?.id ?? null;
-
-  // 3. Si la tab objetivo no está activa, activarla momentáneamente
-  if (wasActive !== tabId) {
-    await browser.tabs.update(tabId, { active: true });
-    // Esperar un tick para que el browser renderice el contenido
-    await new Promise(r => setTimeout(r, 16));
-  }
-
-  // 4. Capturar
-  const dataUrl = await browser.tabs.captureVisibleTab(windowId, {
-    format: 'jpeg', quality: 80,
-  });
-
-  // 5. Restaurar la tab que estaba activa (sin await para no bloquear)
-  if (wasActive !== null && wasActive !== tabId) {
-    browser.tabs.update(wasActive, { active: true }).catch(() => { });
-  }
-
-  return dataUrl;
-}
-
-function startFramePush(sources, fps) {
-  stopFramePush();
-  framePushSources = sources;
-  const interval = Math.round(1000 / Math.min(fps, 30));
-  let busy = false;
-
-  framePushTimer = setInterval(async () => {
-    if (busy || framePushSources.length === 0) return;
-    busy = true;
-    try {
-      // Capturar cada fuente y mandar su frame con su índice
-      const frames = await Promise.all(
-        framePushSources.map(async (src, idx) => {
-          if (src.type === 'tab') {
-            const dataUrl = await captureTabFrame(src.tabId);
-            return { idx, dataUrl };
-          }
-          return null; // window/screen los maneja el recorder con getDisplayMedia
-        })
-      );
-      for (const f of frames) {
-        if (f?.dataUrl) {
-          browser.runtime.sendMessage({ type: 'FRAME_DATA', idx: f.idx, dataUrl: f.dataUrl }).catch(() => { });
-        }
-      }
-    } catch { }
-    busy = false;
-  }, interval);
-}
-
-function stopFramePush() {
-  if (framePushTimer) { clearInterval(framePushTimer); framePushTimer = null; }
-  framePushSources = [];
-}
-
-// ── Broadcast ──────────────────────────────────────────────────────────────
-function broadcast(msg) {
-  browser.runtime.sendMessage(msg).catch(() => { });
-}
 
 // ── Mensajes ───────────────────────────────────────────────────────────────
 browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-
+  // console.log('message', msg);
+  // console.log('sender', sender);
   switch (msg.type) {
 
     // El content script manda eventos de consola con su tabId
@@ -310,4 +257,187 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ data: JSON.stringify({ exported: new Date().toISOString(), networkEvents, consoleEvents }, null, 2) });
       return true;
   }
+});
+
+// ---------- Listeners de mensajes (popup y content scripts) ----------
+
+browser.runtime.onMessage.addListener((message, sender) => {
+  // console.log('message', message);
+  // console.log('sender', sender);
+  switch (message.action) {
+    case "GET_RECORDING_STATE": {
+      const tabId = sender.tab ? sender.tab.id : null;
+      const windowId = sender.tab ? sender.tab.windowId : null;
+      const recording = sender.tab ? matchesScope(tabId, windowId) : state.isRecording;
+      return Promise.resolve({ recording });
+    }
+
+    case "GET_FULL_STATE": {
+      // console.log('background 277', state);
+      return Promise.resolve(state);
+    }
+
+    case "START_RECORDING": {
+      // console.log('start recording', message.payload);
+      return startRecording(message.payload);
+    }
+
+    case "STOP_RECORDING": {
+      return stopRecording();
+    }
+
+    case "DELETE_CASE": {
+      return deleteCase(message.caseId).then(() => state);
+    }
+
+    case "CLEAR_ALL_CASES": {
+      return clearAllCases().then(() => state);
+    }
+
+    case "EVENT_CAPTURED": {
+      // console.log('algocapturado');
+      if (!sender.tab) return Promise.resolve(false);
+      const tabId = sender.tab.id;
+      const windowId = sender.tab.windowId;
+      if (matchesScope(tabId, windowId)) {
+        pushEvent(message.event);
+        return Promise.resolve(true);
+      }
+      return Promise.resolve(false);
+    }
+
+    case "RESULT_CAPTURED": {
+      // Resultado "pasivo" (consola / error) que se adjunta al último paso, no crea uno nuevo
+      if (!sender.tab) return Promise.resolve(false);
+      const tabId = sender.tab.id;
+      const windowId = sender.tab.windowId;
+      if (matchesScope(tabId, windowId)) {
+        attachResult(message.category, message.data);
+        return Promise.resolve(true);
+      }
+      return Promise.resolve(false);
+    }
+
+    default:
+      return undefined;
+  }
+});
+
+// ---------- Navegación real (carga completa de página) ----------
+
+browser.webNavigation.onCommitted.addListener((details) => {
+  if (details.frameId !== 0) return; // solo frame principal
+  if (!isTrackableUrl(details.url)) return;
+  handleNavigationEvent(details.tabId, details.url);
+});
+
+// ---------- Navegación tipo SPA (pushState / replaceState / hash) ----------
+
+browser.webNavigation.onHistoryStateUpdated.addListener((details) => {
+  if (details.frameId !== 0) return;
+  if (!isTrackableUrl(details.url)) return;
+  handleNavigationEvent(details.tabId, details.url);
+});
+
+browser.webNavigation.onReferenceFragmentUpdated.addListener((details) => {
+  if (details.frameId !== 0) return;
+  if (!isTrackableUrl(details.url)) return;
+  handleNavigationEvent(details.tabId, details.url);
+});
+
+
+// ---------- Pestañas nuevas / cerradas (solo relevante con alcance "ventana") ----------
+
+browser.tabs.onCreated.addListener((tab) => {
+  if (!state.isRecording || state.scope !== "window") return;
+  if (tab.windowId !== state.windowId) return;
+  recordedTabIds.add(tab.id);
+  pushEvent({
+    type: "tab",
+    description: `Usuario abre una nueva pestaña`,
+    url: tab.url || null
+  });
+});
+
+browser.tabs.onRemoved.addListener((tabId) => {
+  recordedTabIds.delete(tabId);
+  if (!state.isRecording) return;
+
+  if (state.scope === "tab" && tabId === state.tabId) {
+    // Se cerró la pestaña que se estaba grabando: detener y guardar lo capturado.
+    pushEvent({ type: "tab", description: "La pestaña grabada se cerró" });
+    stopRecording();
+    return;
+  }
+
+  if (state.scope === "window" && tabId !== state.tabId) {
+    pushEvent({ type: "tab", description: "Usuario cierra una pestaña" });
+  }
+});
+
+browser.webRequest.onBeforeRequest.addListener(
+  (details) => {
+    if (!shouldTrackRequest(details)) return;
+
+    pendingRequests.set(details.requestId, {
+      requestId: details.requestId,
+      method: details.method,
+      url: details.url,
+      resourceType: details.type,
+      startedAt: nowISO(),
+      timeStampStart: details.timeStamp,
+      requestBody: extractRequestBody(details.requestBody),
+      requestHeaders: null,
+      responseHeaders: null,
+      statusCode: null,
+      statusLine: null,
+      fromCache: null,
+      finishedAt: null,
+      durationMs: null,
+      error: null
+    });
+
+    maybeCaptureResponseBody(details);
+  },
+  { urls: ["<all_urls>"] },
+  ["requestBody"]
+);
+
+browser.webRequest.onBeforeSendHeaders.addListener(
+  (details) => {
+    const entry = pendingRequests.get(details.requestId);
+    if (!entry) return;
+    entry.requestHeaders = redactHeaders(details.requestHeaders);
+  },
+  { urls: ["<all_urls>"] },
+  ["requestHeaders"]
+);
+
+browser.webRequest.onHeadersReceived.addListener(
+  (details) => {
+    const entry = pendingRequests.get(details.requestId);
+    if (!entry) return;
+    entry.responseHeaders = redactHeaders(details.responseHeaders);
+    entry.statusCode = details.statusCode;
+    entry.statusLine = details.statusLine;
+  },
+  { urls: ["<all_urls>"] },
+  ["responseHeaders"]
+);
+
+browser.webRequest.onCompleted.addListener(
+  (details) => finalizeRequest(details, null),
+  { urls: ["<all_urls>"] },
+  ["responseHeaders"]
+);
+
+browser.webRequest.onErrorOccurred.addListener((details) => {
+  finalizeRequest(details, details.error);
+}, { urls: ["<all_urls>"] });
+
+
+// ---------- Inicialización ----------
+
+loadState().then(() => {
+  if (state.isRecording) rebuildRecordedTabIds();
 });

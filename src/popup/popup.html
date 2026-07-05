@@ -2,104 +2,101 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>UrdReplay</title>
+  <title>Grabador de Casos de Uso</title>
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
-  <header class="header">
-    <div class="logo">
-      <span class="logo-dot"></span>
-      <span class="logo-text">UrdReplay</span>
-    </div>
-    <div class="header-actions">
-      <button id="btn-export" class="btn btn-ghost" title="Exportar JSON">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-          <path d="M8 2v8M5 7l3 3 3-3M3 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <button id="btn-clear" class="btn btn-ghost" title="Limpiar eventos">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-          <path d="M3 4h10M5 4V3h6v1M6 7v4M10 7v4M4 4l.6 8h6.8L12 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-    </div>
-  </header>
+  <div class="app">
 
-  <!-- Controles principales -->
-  <section class="controls">
-    <!-- Captura de eventos -->
-    <div class="control-group">
-      <div class="control-label">
-        <span class="label-text">Captura</span>
-        <span id="capture-badge" class="badge badge-off">off</span>
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-dot" id="statusDot"></span>
+        <h1>Grabador de Casos</h1>
       </div>
-      <button id="btn-capture" class="btn btn-primary">
-        <span class="btn-icon btn-icon-play">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <polygon points="2,1 11,6 2,11" fill="currentColor"/>
-          </svg>
-        </span>
-        <span class="btn-icon btn-icon-stop" style="display:none">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <rect x="1" y="1" width="10" height="10" rx="1" fill="currentColor"/>
-          </svg>
-        </span>
-        <span id="btn-capture-text">Iniciar captura</span>
-      </button>
-    </div>
+      <span class="brand-sub" id="statusText">Inactivo</span>
+    </header>
 
-    <!-- Grabación de pantalla -->
-    <div class="control-group">
-      <div class="control-label">
-        <span class="label-text">Pantalla</span>
-        <span id="record-badge" class="badge badge-off">off</span>
+    <!-- ---------- Pantalla: configurar e iniciar grabación ---------- -->
+    <section id="setupView" class="view">
+      <label class="field">
+        <span class="field-label">Título del caso de uso</span>
+        <input id="titleInput" type="text" placeholder='Ej: "Prueba de login"' maxlength="120" />
+      </label>
+
+      <div class="field">
+        <span class="field-label">¿Qué quieres grabar?</span>
+        <div class="scope-options">
+          <label class="scope-card">
+            <input type="radio" name="scope" value="tab" checked />
+            <div>
+              <strong>Esta pestaña</strong>
+              <small>Solo la pestaña activa</small>
+            </div>
+          </label>
+          <label class="scope-card">
+            <input type="radio" name="scope" value="window" />
+            <div>
+              <strong>Toda la ventana</strong>
+              <small>Incluye pestañas nuevas que se abran</small>
+            </div>
+          </label>
+        </div>
       </div>
-      <button id="btn-record" class="btn btn-record">
-        <span class="btn-icon">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <circle cx="6" cy="6" r="4" fill="currentColor"/>
-          </svg>
-        </span>
-        <span id="btn-record-text">Grabar pantalla</span>
+
+      <button id="startBtn" class="btn btn-primary">
+        <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6" fill="currentColor"/></svg>
+        Iniciar grabación
       </button>
-    </div>
-  </section>
 
-  <!-- Contadores -->
-  <div class="counters">
-    <div class="counter" id="counter-error">
-      <span class="counter-num" id="count-errors">0</span>
-      <span class="counter-label">errores</span>
-    </div>
-    <div class="counter" id="counter-warn">
-      <span class="counter-num" id="count-warns">0</span>
-      <span class="counter-label">warnings</span>
-    </div>
-    <div class="counter" id="counter-net">
-      <span class="counter-num" id="count-net">0</span>
-      <span class="counter-label">red</span>
-    </div>
-    <div class="counter" id="counter-net-err">
-      <span class="counter-num" id="count-net-errors">0</span>
-      <span class="counter-label">net errors</span>
-    </div>
+      <p class="hint">La extensión necesita permiso para leer la pestaña activa, detectar navegación y ejecutar un script en la página. Estos permisos se solicitan al instalarla.</p>
+    </section>
+
+    <!-- ---------- Pantalla: grabando ---------- -->
+    <section id="recordingView" class="view hidden">
+      <div class="recording-banner">
+        <span class="pulse"></span>
+        <div>
+          <strong id="recordingTitle">Título</strong>
+          <small id="recordingScope">Esta pestaña</small>
+        </div>
+      </div>
+
+      <ol id="liveSteps" class="steps-list"></ol>
+
+      <button id="stopBtn" class="btn btn-danger">
+        <svg width="12" height="12" viewBox="0 0 12 12"><rect width="12" height="12" rx="2" fill="currentColor"/></svg>
+        Detener y guardar
+      </button>
+    </section>
+
+    <!-- ---------- Casos guardados ---------- -->
+    <section class="view">
+      <div class="section-title-row">
+        <span class="field-label">Casos guardados</span>
+        <button id="exportAllBtn" class="btn-link">Exportar todo</button>
+      </div>
+      <div id="casesList" class="cases-list">
+        <p class="empty-msg" id="emptyMsg">Todavía no hay casos guardados.</p>
+      </div>
+    </section>
+
   </div>
 
-  <!-- Tabs de filtro -->
-  <div class="tabs">
-    <button class="tab active" data-tab="all">Todo</button>
-    <button class="tab" data-tab="error">Errores</button>
-    <button class="tab" data-tab="network">Red</button>
-    <button class="tab" data-tab="console">Consola</button>
-  </div>
-
-  <!-- Lista de eventos -->
-  <div class="events-list" id="events-list">
-    <div class="empty-state" id="empty-state">
-      <p>Inicia la captura para ver eventos.</p>
+  <!-- Plantilla de tarjeta de caso guardado -->
+  <template id="caseCardTemplate">
+    <div class="case-card">
+      <div class="case-card-main">
+        <strong class="case-title"></strong>
+        <small class="case-meta"></small>
+      </div>
+      <div class="case-card-actions">
+        <button class="btn-icon view-btn" title="Ver pasos">Ver</button>
+        <button class="btn-icon export-btn" title="Exportar JSON">JSON</button>
+        <button class="btn-icon delete-btn" title="Eliminar">Eliminar</button>
+      </div>
+      <ol class="case-steps hidden"></ol>
     </div>
-  </div>
+  </template>
 
   <script src="popup.js"></script>
 </body>
