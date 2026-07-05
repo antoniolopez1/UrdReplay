@@ -3,6 +3,8 @@
 
 // ── Estado ────────────────────────────────────────────────────────────────
 // captureMode: 'tab1' | 'tab2' | 'window' | 'screen'
+let frameLoopRunning = false;
+let frameLoopPromise = null;
 let captureMode = 'tab1';
 let sourceTabA = null;   // tab seleccionada en slot A
 let sourceTabB = null;   // tab seleccionada en slot B (solo tab2)
@@ -307,81 +309,160 @@ cursorOC2.fill();
 // ── Frame loop (USANDO captureTab SIN PARPADEO) ──────────────────────────
 function startFrameLoop() {
   stopFrameLoop();
+
   const fps = parseInt(selFps.value, 10) || 24;
+  const frameDelay = 1000 / fps;
+
   const sources = [];
 
-  if (sourceTabA) sources.push({ type: 'tab', tabId: sourceTabA.id, slot: 0 });
-  if (sourceTabB) sources.push({ type: 'tab', tabId: sourceTabB.id, slot: 1 });
+  if (sourceTabA)
+    sources.push({ tabId: sourceTabA.id, slot: 0 });
 
-  if (sources.length > 0) {
-    // Iniciar captura usando captureTab en lugar de chrome.tabCapture
-    const interval = 1000 / fps;
+  if (sourceTabB)
+    sources.push({ tabId: sourceTabB.id, slot: 1 });
 
-    // Capturar frames periódicamente
-    frameTimer = setInterval(async () => {
+  if (!sources.length)
+    return;
+
+  frameLoopRunning = true;
+
+  frameLoopPromise = (async () => {
+
+    while (frameLoopRunning) {
+
+      const start = performance.now();
+
       for (const source of sources) {
+
+        if (!frameLoopRunning)
+          break;
+
         try {
-          // ⚡ USAR captureTab - NO requiere foco, NO causa parpadeo
+
           const dataUrl = await browser.tabs.captureTab(source.tabId, {
-            format: 'jpeg',
+            format: "jpeg",
             quality: 90
           });
 
-          // Enviar frame al canvas correspondiente
+          if (!frameLoopRunning)
+            break;
+
           if (ctxs[source.slot]) {
-            drawFrame(dataUrl, ctxs[source.slot], canvases[source.slot]);
+            await drawFrame(dataUrl, ctxs[source.slot], canvases[source.slot]);
           }
-        } catch (error) {
-          console.error(`Error capturando tab ${source.tabId}:`, error);
+
+        }
+        catch (e) {
+          console.error(`Error capturando tab ${source.tabId}`, e);
         }
       }
-    }, interval);
-  }
+
+      const elapsed = performance.now() - start;
+
+      const wait = Math.max(0, frameDelay - elapsed);
+
+      if (wait > 0) {
+        await new Promise(r => setTimeout(r, wait));
+      }
+
+    }
+
+  })();
 }
 
 function stopFrameLoop() {
-  if (frameTimer) {
-    clearInterval(frameTimer);
-    frameTimer = null;
-  }
+  frameLoopRunning = false;
+  frameLoopPromise = null;
+  frameTimer = null;
 }
 
 async function drawFrame(dataUrl, targetCtx, targetCanvas) {
-  let bitmap;
-  try {
-    const parts = dataUrl.split(',');
-    const mime = parts[0].match(/:(.*?);/)[1];
-    const binary = atob(parts[1]);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    bitmap = await createImageBitmap(new Blob([bytes], { type: mime }));
-  } catch { return; }
 
-  if (targetCanvas.width !== bitmap.width || targetCanvas.height !== bitmap.height) {
+  let bitmap;
+
+  try {
+
+    const response = await fetch(dataUrl);
+
+    const blob = await response.blob();
+
+    bitmap = await createImageBitmap(blob);
+
+  }
+  catch (e) {
+    return;
+  }
+
+  if (
+    targetCanvas.width !== bitmap.width ||
+    targetCanvas.height !== bitmap.height
+  ) {
     targetCanvas.width = bitmap.width;
     targetCanvas.height = bitmap.height;
   }
+
   targetCtx.drawImage(bitmap, 0, 0);
+
   bitmap.close();
 
-  // Cursor solo sobre el canvas A (pestaña principal)
-  if (targetCtx === ctxs[0] && cursor.x >= 0 && cursor.y >= 0) {
+  if (
+    targetCtx === ctxs[0] &&
+    cursor.x >= 0 &&
+    cursor.y >= 0
+  ) {
+
     const dpr = cursor.dpr || 1;
+
     const cx = cursor.x * dpr;
     const cy = cursor.y * dpr;
-    if (cx >= 0 && cy >= 0 && cx < targetCanvas.width && cy < targetCanvas.height) {
-      targetCtx.drawImage(cursorOC, cx, cy, CURSOR_SIZE * dpr, CURSOR_SIZE * dpr);
+
+    if (
+      cx >= 0 &&
+      cy >= 0 &&
+      cx < targetCanvas.width &&
+      cy < targetCanvas.height
+    ) {
+
+      targetCtx.drawImage(
+        cursorOC,
+        cx,
+        cy,
+        CURSOR_SIZE * dpr,
+        CURSOR_SIZE * dpr
+      );
+
     }
+
   }
+
 }
 
-function stopCapture() {
+async function stopCapture() {
+
   stopFrameLoop();
-  if (captureStream) { captureStream.getTracks().forEach(t => t.stop()); captureStream = null; }
-  if (displayStream) { displayStream.getTracks().forEach(t => t.stop()); displayStream = null; }
+
+  if (frameLoopPromise) {
+    try {
+      await frameLoopPromise;
+    } catch { }
+  }
+
+  if (captureStream) {
+    captureStream.getTracks().forEach(t => t.stop());
+    captureStream = null;
+  }
+
+  if (displayStream) {
+    displayStream.getTracks().forEach(t => t.stop());
+    displayStream = null;
+  }
+
   previewVideo.srcObject = null;
-  sourceTabA = null; sourceTabB = null;
-  applyState('idle');
+
+  sourceTabA = null;
+  sourceTabB = null;
+
+  applyState("idle");
 }
 
 // ── Grabación ─────────────────────────────────────────────────────────────
@@ -863,6 +944,7 @@ function highlightCurrentEvent(overlay, events, currentTs) {
 
 // ── Background messaging ──────────────────────────────────────────────────
 function bgMsg(type, extra = {}) {
+  console.log('bgMsg');
   return browser.runtime.sendMessage({ type, ...extra });
 }
 
