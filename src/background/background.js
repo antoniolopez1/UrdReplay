@@ -1,30 +1,40 @@
 import {
 finalizeRequest,
-shouldTrackRequest
+shouldTrackRequest,
+persist,
+redactHeaders,
+redactObjectDeep,
+redactBodyString,
+redactFormData,
+addNetworkEvent,
+addConsoleEvent,
+extractRequestBody,
+maybeCaptureResponseBody
 } from "./TraceUtils/NetworkUtils.js";
 import { startRecording, stopRecording, rebuildRecordedTabIds, broadcast } from "./TraceUtils/RecorderUtils.js";
-import { state, pendingRequests } from './globalState.js';
+import { state, pendingRequests, recordedTabIds, SESSION_KEY,
+  SENSITIVE_KEY_PATTERN,
+  SENSITIVE_HEADER_NAMES,
+  MAX_BODY_CHARS,
+  MAX_RESULTS_PER_STEP
+ } from './globalState.js';
 import { loadState, isTrackableUrl, handleNavigationEvent, deleteCase, matchesScope, pushEvent } from "./TraceUtils/UseCaseUtils.js";
 // ─── DevJam · Background Service Worker ───────────────────────────────────
 
 
-const SESSION_KEY = 'devjam_session';
-const MAX_EVENTS = 500;
 
 // ── Estado ────────────────────────────────────────────────────────────────
-let capturing = false;
-let captureTabId = null;   // null = todas las pestañas, número = solo esa
 let recording = false;
-let networkEvents = [];
-let consoleEvents = [];
+// let networkEvents = [];
+// let consoleEvents = [];
 
 browser.storage.local.get(SESSION_KEY).then(result => {
   const saved = result[SESSION_KEY];
   if (saved) {
-    capturing = saved.capturing ?? false;
-    captureTabId = saved.captureTabId ?? null;
-    networkEvents = saved.networkEvents ?? [];
-    consoleEvents = saved.consoleEvents ?? [];
+    state.capturing = saved.capturing ?? false;
+    state.captureTabId = saved.captureTabId ?? null;
+    state.networkEvents = saved.networkEvents ?? [];
+    state.consoleEvents = saved.consoleEvents ?? [];
   }
 });
 /**
@@ -41,34 +51,10 @@ browser.storage.local.get(SESSION_KEY).then(result => {
  */
 
 
-// Límites para no disparar el tamaño de storage con bodies/console grandes
-const MAX_BODY_CHARS = 20000;       // tope de texto guardado por body de red
-const MAX_RESULTS_PER_STEP = 60;    // tope de entradas (red/consola/errores) por paso
-
-
-// Estado solo en memoria (no se persiste): seguimiento de red en vuelo
-
-// ── Captura de red ─────────────────────────────────────────────────────────
-
-
-
-
-
-// ---------- Redacción de datos sensibles (headers / bodies) ----------
-
-const SENSITIVE_KEY_PATTERN = /pass(word)?|pwd|secret|token|api[_-]?key|auth|card(num|number)?|cvv|cvc|ssn/i;
-const SENSITIVE_HEADER_NAMES = new Set([
-  "authorization",
-  "cookie",
-  "set-cookie",
-  "x-api-key",
-  "proxy-authorization"
-]);
-
 browser.webRequest.onBeforeRequest.addListener(
   details => {
-    if (!capturing) return;
-    if (captureTabId !== null && details.tabId !== captureTabId) return;
+    if (!state.capturing) return;
+    if (state.captureTabId !== null && details.tabId !== state.captureTabId) return;
 
     // Capturar body del request cuando está disponible
     let requestBody = null;
@@ -99,8 +85,8 @@ browser.webRequest.onBeforeRequest.addListener(
 
 browser.webRequest.onSendHeaders.addListener(
   details => {
-    if (!capturing) return;
-    if (captureTabId !== null && details.tabId !== captureTabId) return;
+    if (!state.capturing) return;
+    if (state.captureTabId !== null && details.tabId !== state.captureTabId) return;
     const req = pendingRequests.get(details.requestId);
     if (!req) return;
     // webRequest devuelve [{name, value}] — convertir a objeto plano
@@ -115,8 +101,8 @@ browser.webRequest.onSendHeaders.addListener(
 
 browser.webRequest.onCompleted.addListener(
   details => {
-    if (!capturing) return;
-    if (captureTabId !== null && details.tabId !== captureTabId) return;
+    if (!state.capturing) return;
+    if (state.captureTabId !== null && details.tabId !== state.captureTabId) return;
     const req = pendingRequests.get(details.requestId);
     if (!req) return;
 
@@ -149,8 +135,8 @@ browser.webRequest.onCompleted.addListener(
 
 browser.webRequest.onErrorOccurred.addListener(
   details => {
-    if (!capturing) return;
-    if (captureTabId !== null && details.tabId !== captureTabId) return;
+    if (!state.capturing) return;
+    if (state.captureTabId !== null && details.tabId !== state.captureTabId) return;
     const req = pendingRequests.get(details.requestId);
     pendingRequests.delete(details.requestId);
 
@@ -180,39 +166,43 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     // El content script manda eventos de consola con su tabId
     case 'CONSOLE_EVENT': {
-      if (!capturing) break;
-      if (captureTabId !== null && sender.tab?.id !== captureTabId) break;
+      if (!state.capturing) break;
+      if (state.captureTabId !== null && sender.tab?.id !== state.captureTabId) break;
       addConsoleEvent({ ...msg.event, tabId: sender.tab?.id });
       break;
     }
 
     // El content script manda eventos de red enriquecidos (fetch/XHR body)
     case 'NETWORK_BODY': {
-      if (!capturing) break;
-      if (captureTabId !== null && sender.tab?.id !== captureTabId) break;
+      // console.log('background NETWORK_BODY');
+      if (!state.capturing) break;
+      if (state.captureTabId !== null && sender.tab?.id !== state.captureTabId) break;
       // Buscar el evento de red correspondiente y agregarle el body
-      const ev = networkEvents.find(e => e.url === msg.url && !e.responseBody);
+      const ev = state.networkEvents.find(e => e.url === msg.url && !e.responseBody);
       if (ev) {
         ev.responseBody = msg.responseBody;
         ev.requestBodyFull = msg.requestBody;
         persist();
-        broadcast({ type: 'NETWORK_EVENT', event: ev });
+        // broadcast({ type: 'NETWORK_EVENT', event: ev });
+      }else{
+        console.log('no se ha encontrado un evento de red', msg);
+        console.log('state.networkEvents', state.networkEvents);
       }
       break;
     }
 
     case 'GET_STATE':
-      sendResponse({ capturing, captureTabId, recording, networkEvents, consoleEvents });
+      sendResponse({ capturing:state.capturing, captureTabId:state.captureTabId, recording, networkEvents: state.networkEvents, consoleEvents: state.consoleEvents });
       return true;
 
     case 'SET_CAPTURING':
-      capturing = msg.value;
-      captureTabId = msg.tabId ?? null;   // null = todas las pestañas
+      state.capturing = msg.value;
+      state.captureTabId = msg.tabId ?? null;   // null = todas las pestañas
       persist();
       browser.tabs.query({}).then(tabs => {
         tabs.forEach(tab => {
           browser.tabs.sendMessage(tab.id, {
-            type: 'SET_CAPTURING', value: capturing
+            type: 'SET_CAPTURING', value: state.capturing
           }).catch(() => { });
         });
       });
@@ -247,14 +237,14 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true;
 
     case 'CLEAR_EVENTS':
-      networkEvents = [];
-      consoleEvents = [];
+      state.networkEvents = [];
+      state.consoleEvents = [];
       persist();
       sendResponse({ ok: true });
       return true;
 
     case 'EXPORT_JSON':
-      sendResponse({ data: JSON.stringify({ exported: new Date().toISOString(), networkEvents, consoleEvents }, null, 2) });
+      sendResponse({ data: JSON.stringify({ exported: new Date().toISOString(), networkEvents:state.networkEvents, consoleEvents:state.consoleEvents }, null, 2) });
       return true;
   }
 });
@@ -377,6 +367,8 @@ browser.tabs.onRemoved.addListener((tabId) => {
 
 browser.webRequest.onBeforeRequest.addListener(
   (details) => {
+    // console.log('ingresa en el listener de webRequest', details);
+    // console.log('!shouldTrackRequest(details)', !shouldTrackRequest(details));
     if (!shouldTrackRequest(details)) return;
 
     pendingRequests.set(details.requestId, {

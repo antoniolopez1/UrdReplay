@@ -736,7 +736,8 @@ function buildNetRow(e) {
 
   // Preview del response body (primeros 200 chars)
   let preview = '';
-  if (e.responseBody && typeof e.responseBody === 'string' && !e.responseBody.startsWith('[binary')) {
+  console.log('responseBody ', e.responseBody);
+  if (e.responseBody && typeof e.responseBody === 'string') {
     try {
       // Intentar formatear JSON
       preview = JSON.stringify(JSON.parse(e.responseBody), null, 2).slice(0, 300);

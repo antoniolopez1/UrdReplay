@@ -1,4 +1,12 @@
-import { state, pendingRequests, responseBodyCapture, recordedTabIds } from '../globalState.js';
+import { state, pendingRequests, responseBodyCapture, recordedTabIds, 
+    SESSION_KEY, MAX_EVENTS,
+    SENSITIVE_KEY_PATTERN,
+    SENSITIVE_HEADER_NAMES,
+    MAX_BODY_CHARS,
+    MAX_RESULTS_PER_STEP
+} from '../globalState.js';
+import { broadcast } from "./RecorderUtils.js";
+
 
 
 function redactHeaders(headers) {
@@ -45,22 +53,22 @@ function redactFormData(formData) {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function addNetworkEvent(event) {
-    networkEvents.unshift(event);
-    if (networkEvents.length > MAX_EVENTS) networkEvents.length = MAX_EVENTS;
+    state.networkEvents.unshift(event);
+    if (state.networkEvents.length > MAX_EVENTS) state.networkEvents.length = MAX_EVENTS;
     persist();
     broadcast({ type: 'NETWORK_EVENT', event });
 }
 
 function addConsoleEvent(event) {
-    consoleEvents.unshift(event);
-    if (consoleEvents.length > MAX_EVENTS) consoleEvents.length = MAX_EVENTS;
+    state.consoleEvents.unshift(event);
+    if (state.consoleEvents.length > MAX_EVENTS) state.consoleEvents.length = MAX_EVENTS;
     persist();
     broadcast({ type: 'CONSOLE_EVENT', event });
 }
 
 function persist() {
     browser.storage.local.set({
-        [SESSION_KEY]: { capturing, captureTabId, networkEvents, consoleEvents }
+        [SESSION_KEY]: { capturing:state.capturing, captureTabId:state.captureTabId, networkEvents: state.networkEvents, consoleEvents: state.consoleEvents }
     });
 }
 // =====================================================================
@@ -113,6 +121,7 @@ function extractRequestBody(requestBody) {
  * (se evita interceptar imágenes, fuentes, scripts, etc.)
  */
 function maybeCaptureResponseBody(details) {
+    // console.log('maybeCaptureResponseBody 124');
     if (details.type !== "xmlhttprequest" && details.type !== "fetch") return;
     if (typeof browser.webRequest.filterResponseData !== "function") return;
 
@@ -156,6 +165,8 @@ function maybeCaptureResponseBody(details) {
     }
 }
 function finalizeRequest(details, error) {
+    // console.log('finalizeRequest details ', details);
+    // console.log('finalizeRequest error ', error);
     const entry = pendingRequests.get(details.requestId);
     if (!entry) return;
     pendingRequests.delete(details.requestId);
@@ -184,5 +195,14 @@ function finalizeRequest(details, error) {
 
 export {
     finalizeRequest,
-    shouldTrackRequest
+    shouldTrackRequest,
+    persist,
+    redactHeaders,
+    redactObjectDeep,
+    redactBodyString,
+    redactFormData,
+    addNetworkEvent,
+    addConsoleEvent,
+    extractRequestBody,
+    maybeCaptureResponseBody
 }
