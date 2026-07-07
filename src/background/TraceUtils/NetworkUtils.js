@@ -76,9 +76,14 @@ function persist() {
 // =====================================================================
 
 function shouldTrackRequest(details) {
+    if(details.type === 'xmlhttprequest' || details.type === 'fetch'){
+        console.log('shouldTrackRequest', details);
+        console.log('state', state);
+    }
     if (!state.isRecording) return false;
     if (details.tabId == null || details.tabId < 0) return false;
-    return recordedTabIds.has(details.tabId);
+    if (state.captureTabId !== null && details.tabId !== state.captureTabId) return false;
+    return details.type === 'xmlhttprequest' || details.type === 'fetch';
 }
 
 function extractRequestBody(requestBody) {

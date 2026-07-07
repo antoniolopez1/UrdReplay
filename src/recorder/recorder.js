@@ -736,7 +736,7 @@ function buildNetRow(e) {
 
   // Preview del response body (primeros 200 chars)
   let preview = '';
-  console.log('responseBody ', e.responseBody);
+  // console.log('responseBody ', e.responseBody);
   if (e.responseBody && typeof e.responseBody === 'string') {
     try {
       // Intentar formatear JSON
@@ -945,7 +945,7 @@ function highlightCurrentEvent(overlay, events, currentTs) {
 
 // ── Background messaging ──────────────────────────────────────────────────
 function bgMsg(type, extra = {}) {
-  console.log('bgMsg');
+  // console.log('bgMsg');
   return browser.runtime.sendMessage({ type, ...extra });
 }
 

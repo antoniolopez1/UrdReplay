@@ -1,23 +1,24 @@
 import {
-finalizeRequest,
-shouldTrackRequest,
-persist,
-redactHeaders,
-redactObjectDeep,
-redactBodyString,
-redactFormData,
-addNetworkEvent,
-addConsoleEvent,
-extractRequestBody,
-maybeCaptureResponseBody
+  finalizeRequest,
+  shouldTrackRequest,
+  persist,
+  redactHeaders,
+  redactObjectDeep,
+  redactBodyString,
+  redactFormData,
+  addNetworkEvent,
+  addConsoleEvent,
+  extractRequestBody,
+  maybeCaptureResponseBody
 } from "./TraceUtils/NetworkUtils.js";
 import { startRecording, stopRecording, rebuildRecordedTabIds, broadcast } from "./TraceUtils/RecorderUtils.js";
-import { state, pendingRequests, recordedTabIds, SESSION_KEY,
+import {
+  state, pendingRequests, recordedTabIds, SESSION_KEY,
   SENSITIVE_KEY_PATTERN,
   SENSITIVE_HEADER_NAMES,
   MAX_BODY_CHARS,
   MAX_RESULTS_PER_STEP
- } from './globalState.js';
+} from './globalState.js';
 import { loadState, isTrackableUrl, handleNavigationEvent, deleteCase, matchesScope, pushEvent } from "./TraceUtils/UseCaseUtils.js";
 // ─── DevJam · Background Service Worker ───────────────────────────────────
 
@@ -53,6 +54,7 @@ browser.storage.local.get(SESSION_KEY).then(result => {
 
 browser.webRequest.onBeforeRequest.addListener(
   details => {
+    if (!shouldTrackRequest(details)) return;
     if (!state.capturing) return;
     if (state.captureTabId !== null && details.tabId !== state.captureTabId) return;
 
@@ -85,6 +87,7 @@ browser.webRequest.onBeforeRequest.addListener(
 
 browser.webRequest.onSendHeaders.addListener(
   details => {
+    if (!shouldTrackRequest(details)) return;
     if (!state.capturing) return;
     if (state.captureTabId !== null && details.tabId !== state.captureTabId) return;
     const req = pendingRequests.get(details.requestId);
@@ -101,6 +104,7 @@ browser.webRequest.onSendHeaders.addListener(
 
 browser.webRequest.onCompleted.addListener(
   details => {
+    if (!shouldTrackRequest(details)) return;
     if (!state.capturing) return;
     if (state.captureTabId !== null && details.tabId !== state.captureTabId) return;
     const req = pendingRequests.get(details.requestId);
@@ -175,24 +179,24 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // El content script manda eventos de red enriquecidos (fetch/XHR body)
     case 'NETWORK_BODY': {
       // console.log('background NETWORK_BODY');
+      // console.log('no se ha encontrado un evento de red', msg);
+      // console.log('state.networkEvents', state.networkEvents);
       if (!state.capturing) break;
       if (state.captureTabId !== null && sender.tab?.id !== state.captureTabId) break;
       // Buscar el evento de red correspondiente y agregarle el body
-      const ev = state.networkEvents.find(e => e.url === msg.url && !e.responseBody);
+      const ev = state.networkEvents.find(e => e.url === msg.url);
       if (ev) {
         ev.responseBody = msg.responseBody;
         ev.requestBodyFull = msg.requestBody;
+        // state.networkEvents = [...state.networkEvents.filter(net => net.id !== ev.id), ev]; // Reemplazar el evento en la lista
         persist();
-        // broadcast({ type: 'NETWORK_EVENT', event: ev });
-      }else{
-        console.log('no se ha encontrado un evento de red', msg);
-        console.log('state.networkEvents', state.networkEvents);
-      }
+        broadcast({ type: 'NETWORK_EVENT', event: ev });
+      } 
       break;
     }
 
     case 'GET_STATE':
-      sendResponse({ capturing:state.capturing, captureTabId:state.captureTabId, recording, networkEvents: state.networkEvents, consoleEvents: state.consoleEvents });
+      sendResponse({ capturing: state.capturing, captureTabId: state.captureTabId, recording, networkEvents: state.networkEvents, consoleEvents: state.consoleEvents });
       return true;
 
     case 'SET_CAPTURING':
@@ -211,6 +215,7 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     case 'SET_RECORDING':
       recording = msg.value;
+      state.isRecording = msg.value;
       broadcast({ type: 'RECORDING_STATE', value: recording });
       browser.tabs.query({}).then(tabs => {
         tabs.forEach(tab => {
@@ -244,7 +249,7 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true;
 
     case 'EXPORT_JSON':
-      sendResponse({ data: JSON.stringify({ exported: new Date().toISOString(), networkEvents:state.networkEvents, consoleEvents:state.consoleEvents }, null, 2) });
+      sendResponse({ data: JSON.stringify({ exported: new Date().toISOString(), networkEvents: state.networkEvents, consoleEvents: state.consoleEvents }, null, 2) });
       return true;
   }
 });
@@ -397,6 +402,7 @@ browser.webRequest.onBeforeRequest.addListener(
 
 browser.webRequest.onBeforeSendHeaders.addListener(
   (details) => {
+    if (!shouldTrackRequest(details)) return;
     const entry = pendingRequests.get(details.requestId);
     if (!entry) return;
     entry.requestHeaders = redactHeaders(details.requestHeaders);
@@ -407,6 +413,7 @@ browser.webRequest.onBeforeSendHeaders.addListener(
 
 browser.webRequest.onHeadersReceived.addListener(
   (details) => {
+    if (!shouldTrackRequest(details)) return;
     const entry = pendingRequests.get(details.requestId);
     if (!entry) return;
     entry.responseHeaders = redactHeaders(details.responseHeaders);
@@ -418,7 +425,10 @@ browser.webRequest.onHeadersReceived.addListener(
 );
 
 browser.webRequest.onCompleted.addListener(
-  (details) => finalizeRequest(details, null),
+  (details) => {
+    if (!shouldTrackRequest(details)) return;
+    finalizeRequest(details, null)
+  },
   { urls: ["<all_urls>"] },
   ["responseHeaders"]
 );
